@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>AluIA - Supporto Psicologico</title>
+  <script src="/edv.js" defer></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -23,7 +24,7 @@
     body.dark-mode .header p { color: #bdc3c7; }
     .status-bar { position: fixed; top: 20px; right: 20px; background: #FF9500; color: #fff; padding: 10px 20px; border-radius: 25px; font-weight: bold; z-index: 1000; backdrop-filter: blur(10px); border: none; box-shadow: 0 4px 12px rgba(255,149,0,0.3); }
     .status-bar.connected { background: #4CAF50; }
-    .status-bar.elevenlabs { background: #9C27B0; }
+    .status-bar.error { background: #d32f2f; }
     .theme-toggle { position: fixed; top: 20px; left: 20px; background: rgba(255,255,255,0.95); border: none; border-radius: 50%; width: 50px; height: 50px; font-size: 1.5rem; cursor: pointer; backdrop-filter: blur(10px); transition: all 0.3s ease; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
     body.dark-mode .theme-toggle { background: rgba(52,73,94,0.9); }
     .theme-toggle:hover { transform: scale(1.1); box-shadow: 0 6px 16px rgba(0,0,0,0.15); }
@@ -140,7 +141,7 @@
         <div class="microphone-help">
           <h4>🔓 Come sbloccare il microfono:</h4>
           <ol>
-            <li>Usa la pagina in <strong>HTTPS</strong> (o <code>localhost/127.0.0.1</code> in sviluppo)</li>
+            <li>Usa la pagina in <strong>HTTPS</strong></li>
             <li>Clicca sull'icona del lucchetto 🔒 e consenti il microfono</li>
             <li>Ricarica la pagina (F5) se richiesto</li>
           </ol>
@@ -245,23 +246,16 @@
       <span class="close" id="closeAdmin">&times;</span>
       <h2>⚙️ Configurazione Amministratore</h2>
       <div class="admin-form">
-        <label for="apiKey">OpenAI API Key:</label>
-        <input type="password" id="apiKey" placeholder="sk-...">
-        <label for="elevenLabsKey">ElevenLabs API Key (opzionale):</label>
-        <input type="password" id="elevenLabsKey" placeholder="sk_...">
         <label for="assistantId">Assistant ID (opzionale):</label>
         <input type="text" id="assistantId" placeholder="asst_...">
-        <label for="voiceId">Voice ID ElevenLabs:</label>
+        <label for="voiceId">Voce OpenAI TTS:</label>
         <select id="voiceId">
-          <option value="">Usa sintesi nativa</option>
-          <!-- ✅ Voice ID di default preimpostato -->
-          <option value="IyWqvgbFwm4IK1x6M489" selected>Voce personalizzata (IyWqvgbFwm4IK1x6M489)</option>
-          <option value="21m00Tcm4TlvDq8ikWAM">Rachel (EN - F)</option>
-          <option value="AZnzlk1XvdvUeBnXmlld">Domi (EN - F)</option>
-          <option value="EXAVITQu4vr4xnSDxMaL">Bella (EN - F)</option>
-          <option value="ErXwobaYiN019PkySvjV">Antoni (EN - M)</option>
-          <option value="MF3mGyEYCl7XYWbV9V6O">Elli (EN - F)</option>
-          <option value="TxGEqnHWrfWFTfGW9XjX">Josh (EN - M)</option>
+          <option value="nova" selected>Nova (femminile calda - consigliata)</option>
+          <option value="alloy">Alloy (neutrale)</option>
+          <option value="echo">Echo (maschile)</option>
+          <option value="fable">Fable (maschile britannico)</option>
+          <option value="onyx">Onyx (maschile profondo)</option>
+          <option value="shimmer">Shimmer (femminile delicata)</option>
         </select>
         <button onclick="window.aluia.saveAdminConfig()">Salva Configurazione</button>
       </div>
@@ -269,457 +263,504 @@
   </div>
 
   <script>
-  console.log('🚀 Avvio AluIA – Versione Finale (layout originale + ElevenLabs + anti-loop)');
+    console.log('🚀 Avvio AluIA - Versione OpenAI TTS');
 
-  function isSecureLikeContext(){
-    const {protocol, hostname} = location;
-    if (protocol === 'https:') return true;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
-    return false;
-  }
-
-  class AluIA {
-    constructor() {
-      this.recognition = null;
-      this.isListening = false;
-      this.isProcessing = false;
-      this.autoRestartEnabled = true;
-      this.restartTimeout = null;
-      this.conversationHistory = [];
-      this.isDarkMode = localStorage.getItem('aluia_theme') === 'dark';
-      this.apiKey = localStorage.getItem('aluia_api_key') || '';
-      this.elevenLabsKey = localStorage.getItem('aluia_elevenlabs_key') || '';
-      this.assistantId = localStorage.getItem('aluia_assistant_id') || '';
-      this.voiceId = localStorage.getItem('aluia_voice_id') || 'IyWqvgbFwm4IK1x6M489'; // ✅ Voice ID ElevenLabs di default
-      this.isApiConfigured = this.apiKey.length > 0;
-      this.isElevenLabsConfigured = this.elevenLabsKey.length > 0;
-      this.microphoneEnabled = true;
-
-      // Anti-loop
-      this.isSpeaking = false;
-      this.ignoreAsrUntil = 0;
-      this.postTtsCooldownMs = 900;
-
-      this.desktopFix = {
-        maxRetries: 5, currentRetries: 0, isDesktop: !this.isMobileDevice(),
-        lastError: null, errorCount: 0, consecutiveErrors: 0, lastSuccessTime: Date.now(), adaptiveDelay: 1500
-      };
-
-      this.initElements();
-      this.initSpeechRecognition();
-      this.initEventListeners();
-      this.updateUI();
-      this.applyTheme();
-
-      setTimeout(()=>{ this.startAutoListening(); }, 1000);
-
-      this._italianVoice = null;
-      this.initVoicesOnce();
-
-      this.showToast('AluIA pronta! Microfono sempre attivo.');
+    function isSecureLikeContext(){
+      const {protocol, hostname} = location;
+      return protocol === 'https:' || hostname === 'localhost' || hostname === '127.0.0.1';
     }
 
-    isMobileDevice(){
-      return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
-    }
+    class AluIA {
+      constructor() {
+        this.recognition = null;
+        this.isListening = false;
+        this.isProcessing = false;
+        this.autoRestartEnabled = true;
+        this.restartTimeout = null;
+        this.conversationHistory = [];
+        this.isDarkMode = localStorage.getItem('aluia_theme') === 'dark';
+        this.assistantId = localStorage.getItem('aluia_assistant_id') || '';
+        this.voiceId = localStorage.getItem('aluia_voice_id') || 'nova';
+        this.microphoneEnabled = true;
 
-    initElements(){
-      this.microphoneButton = document.getElementById('microphoneButton');
-      this.microphoneStatus = document.getElementById('microphoneStatus');
-      this.transcriptArea = document.getElementById('transcriptArea');
-      this.chatContainer = document.getElementById('chatContainer');
-      this.chatInput = document.getElementById('chatInput');
-      this.sendButton = document.getElementById('sendButton');
-      this.typingIndicator = document.getElementById('typingIndicator');
-      this.statusBar = document.getElementById('statusBar');
-      this.themeToggle = document.getElementById('themeToggle');
-      this.adminBtn = document.getElementById('adminBtn');
-      this.privacyModal = document.getElementById('privacyModal');
-      this.adminModal = document.getElementById('adminModal');
-    }
+        this.isSpeaking = false;
+        this.ignoreAsrUntil = 0;
+        this.postTtsCooldownMs = 900;
 
-    initSpeechRecognition(){
-      if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        this.recognition = new SpeechRecognition();
-        this.recognition.continuous = true;
-        this.recognition.interimResults = true;
-        this.recognition.lang = 'it-IT';
-        this.recognition.maxAlternatives = 1;
-
-        try{ this.recognition.grammars = new (window.SpeechGrammarList||window.webkitSpeechGrammarList)(); }catch(e){}
-
-        this.recognition.onstart = () => {
-          this.isListening = true;
-          this.desktopFix.currentRetries = 0;
-          this.desktopFix.consecutiveErrors = 0;
-          this.desktopFix.lastSuccessTime = Date.now();
-          this.updateMicrophoneUI();
+        this.desktopFix = {
+          maxRetries: 5, currentRetries: 0, isDesktop: !this.isMobileDevice(),
+          lastError: null, errorCount: 0, consecutiveErrors: 0,
+          lastSuccessTime: Date.now(), adaptiveDelay: 1500
         };
 
-        this.recognition.onresult = (event) => {
-          if (this.isSpeaking || Date.now() < this.ignoreAsrUntil) return;
-          let finalTranscript='', interimTranscript='';
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const t = event.results[i][0].transcript;
-            if (event.results[i].isFinal) finalTranscript += t; else interimTranscript += t;
-          }
-          this.transcriptArea.textContent = finalTranscript + interimTranscript;
-          this.transcriptArea.classList.add('has-content');
-          if (finalTranscript.trim()){
-            this.desktopFix.lastSuccessTime = Date.now();
+        this.initElements();
+        this.initSpeechRecognition();
+        this.initEventListeners();
+        this.applyTheme();
+        this.initVoicesOnce();
+
+        this.setStatus('demo', '⏳ Avvio…');
+        setTimeout(() => { this.startAutoListening(); }, 1000);
+      }
+
+      setStatus(kind, text) {
+        this.statusBar.classList.remove('connected', 'error');
+        if (kind) this.statusBar.classList.add(kind);
+        if (text) this.statusBar.textContent = text;
+      }
+
+      isMobileDevice() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+          (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+      }
+
+      initElements() {
+        this.microphoneButton = document.getElementById('microphoneButton');
+        this.microphoneStatus = document.getElementById('microphoneStatus');
+        this.transcriptArea = document.getElementById('transcriptArea');
+        this.chatContainer = document.getElementById('chatContainer');
+        this.chatInput = document.getElementById('chatInput');
+        this.sendButton = document.getElementById('sendButton');
+        this.typingIndicator = document.getElementById('typingIndicator');
+        this.statusBar = document.getElementById('statusBar');
+        this.themeToggle = document.getElementById('themeToggle');
+        this.adminBtn = document.getElementById('adminBtn');
+        this.privacyModal = document.getElementById('privacyModal');
+        this.adminModal = document.getElementById('adminModal');
+      }
+
+      initSpeechRecognition() {
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+          const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+          this.recognition = new SpeechRecognition();
+          this.recognition.continuous = true;
+          this.recognition.interimResults = true;
+          this.recognition.lang = 'it-IT';
+          this.recognition.maxAlternatives = 1;
+
+          try { this.recognition.grammars = new (window.SpeechGrammarList || window.webkitSpeechGrammarList)(); } catch (e) { }
+
+          this.recognition.onstart = () => {
+            this.isListening = true;
+            this.desktopFix.currentRetries = 0;
             this.desktopFix.consecutiveErrors = 0;
-            this.processVoiceInput(finalTranscript.trim());
-          }
-        };
+            this.desktopFix.lastSuccessTime = Date.now();
+            this.updateMicrophoneUI();
+          };
 
-        this.recognition.onerror = (event) => {
-          this.desktopFix.lastError = event.error;
-          this.desktopFix.errorCount++;
-          this.desktopFix.consecutiveErrors++;
-          this.handleSpeechErrorAdvanced(event.error);
-        };
+          this.recognition.onresult = (event) => {
+            if (this.isSpeaking || Date.now() < this.ignoreAsrUntil) return;
+            let finalTranscript = '', interimTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              const transcript = event.results[i][0].transcript;
+              if (event.results[i].isFinal) finalTranscript += transcript; else interimTranscript += transcript;
+            }
+            this.transcriptArea.textContent = finalTranscript + interimTranscript;
+            this.transcriptArea.classList.add('has-content');
+            if (finalTranscript.trim()) {
+              this.desktopFix.lastSuccessTime = Date.now();
+              this.desktopFix.consecutiveErrors = 0;
+              this.processVoiceInput(finalTranscript.trim());
+            }
+          };
 
-        this.recognition.onend = () => {
-          this.isListening = false;
-          this.updateMicrophoneUI();
-          if (this.autoRestartEnabled && !this.isProcessing && this.microphoneEnabled && !this.isSpeaking) {
-            this.scheduleSmartRestart();
-          }
-        };
-      } else {
-        this.showToast('Riconoscimento vocale non supportato in questo browser', 'error');
-      }
-    }
+          this.recognition.onerror = (event) => {
+            this.desktopFix.lastError = event.error;
+            this.desktopFix.errorCount++;
+            this.desktopFix.consecutiveErrors++;
+            this.handleSpeechErrorAdvanced(event.error);
+          };
 
-    handleSpeechErrorAdvanced(error){
-      if (this.restartTimeout) clearTimeout(this.restartTimeout);
-      let restartDelay = this.desktopFix.adaptiveDelay; let shouldRestart = true;
-      if (this.desktopFix.consecutiveErrors > 2) restartDelay = Math.min(8000, this.desktopFix.adaptiveDelay * Math.pow(1.5, this.desktopFix.consecutiveErrors - 2));
-
-      switch(error){
-        case 'not-allowed':
-          this.autoRestartEnabled = false; shouldRestart = false;
-          this.showToast('Permessi microfono negati. Clicca il microfono per riprovare.', 'error'); break;
-        case 'audio-capture':
-          if (this.desktopFix.consecutiveErrors > 2){ shouldRestart = false; this.showToast('Problema con il microfono. Controlla le impostazioni.', 'error'); }
-          else restartDelay = 3000;
-          break;
-        default: break;
-      }
-
-      const timeSinceSuccess = Date.now() - this.desktopFix.lastSuccessTime;
-      if (timeSinceSuccess > 60000 && this.desktopFix.consecutiveErrors > 3) shouldRestart = false;
-
-      if (shouldRestart && this.autoRestartEnabled && this.microphoneEnabled && !this.isSpeaking) {
-        this.restartTimeout = setTimeout(()=>{
-          if (this.autoRestartEnabled && !this.isListening && this.microphoneEnabled && !this.isSpeaking) this.startListening();
-        }, restartDelay);
-      }
-      this.isListening = false; this.updateMicrophoneUI();
-    }
-
-    scheduleSmartRestart(){
-      let delay = this.desktopFix.isDesktop ? 2500 : 1500;
-      if (this.desktopFix.consecutiveErrors > 0) delay += this.desktopFix.consecutiveErrors * 500;
-      delay = Math.min(delay, 6000);
-      this.restartTimeout = setTimeout(()=>{
-        if (this.autoRestartEnabled && !this.isListening && !this.isProcessing && this.microphoneEnabled && !this.isSpeaking) this.startListening();
-      }, delay);
-    }
-
-    initEventListeners(){
-      this.microphoneButton?.addEventListener('click', () => this.toggleMicrophone());
-      this.sendButton?.addEventListener('click', () => this.sendMessage());
-      this.chatInput?.addEventListener('keypress', (e)=>{ if (e.key === 'Enter') this.sendMessage(); });
-      this.themeToggle?.addEventListener('click', () => this.toggleTheme());
-      document.getElementById('privacyButton')?.addEventListener('click', () => this.showPrivacyModal());
-      document.getElementById('closePrivacy')?.addEventListener('click', () => this.hidePrivacyModal());
-      document.getElementById('closeAdmin')?.addEventListener('click', () => this.hideAdminModal());
-      document.addEventListener('click', (e) => { if (e.target === this.privacyModal) this.hidePrivacyModal(); if (e.target === this.adminModal) this.hideAdminModal(); });
-      document.addEventListener('keydown', (e) => { if (e.key === 'Escape'){ this.hidePrivacyModal(); this.hideAdminModal(); }});
-      document.addEventListener('dblclick', (e) => {
-        if (e.target === document.body) {
-          const code = prompt('Codice amministratore:');
-          if (code === 'ALUIA2025'){ this.adminBtn.style.display = 'block'; this.showToast('Modalità amministratore attivata', 'success'); }
-        }
-      });
-      this.adminBtn?.addEventListener('click', () => this.showAdminModal());
-
-      document.addEventListener('visibilitychange', () => {
-        if (document.hidden) {
-          if (this.isListening) { this.autoRestartEnabled = false; this.stopListening(); }
+          this.recognition.onend = () => {
+            this.isListening = false;
+            this.updateMicrophoneUI();
+            if (this.autoRestartEnabled && !this.isProcessing && this.microphoneEnabled && !this.isSpeaking) {
+              this.scheduleSmartRestart();
+            }
+          };
         } else {
-          setTimeout(()=>{ this.autoRestartEnabled = true; this.desktopFix.consecutiveErrors = 0; if (!this.isListening && this.microphoneEnabled && !this.isSpeaking) this.startListening(); }, 1000);
-        }
-      });
-    }
-
-    async startAutoListening(){
-      try{
-        if (!isSecureLikeContext()) {
-          this.showToast('Apri la pagina in HTTPS o localhost per attivare il microfono', 'error');
-          return;
-        }
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
-        stream.getTracks().forEach(t => t.stop());
-        setTimeout(()=>{ if (this.microphoneEnabled) this.startListening(); }, this.desktopFix.isDesktop ? 2000 : 1000);
-      } catch (e) {
-        this.showToast('Permessi microfono richiesti per funzionare', 'error');
-      }
-    }
-
-    startListening(){
-      if (this.recognition && !this.isListening && this.microphoneEnabled){
-        try{ this.recognition.start(); }
-        catch(e){
-          this.desktopFix.consecutiveErrors++;
-          const retryDelay = this.desktopFix.isDesktop ? 3000 : 2000;
-          setTimeout(()=>{
-            if (!this.isListening && this.autoRestartEnabled && this.desktopFix.consecutiveErrors < 5 && this.microphoneEnabled && !this.isSpeaking) this.startListening();
-          }, retryDelay);
+          this.showToast('Riconoscimento vocale non supportato in questo browser', 'error');
         }
       }
-    }
 
-    stopListening(){
-      if (this.recognition && this.isListening){
-        this.recognition.stop();
-        if (this.restartTimeout){ clearTimeout(this.restartTimeout); this.restartTimeout = null; }
-      }
-    }
+      handleSpeechErrorAdvanced(error) {
+        if (this.restartTimeout) clearTimeout(this.restartTimeout);
+        let restartDelay = this.desktopFix.adaptiveDelay;
+        let shouldRestart = true;
 
-    toggleMicrophone(){
-      if (this.microphoneEnabled){
-        this.microphoneEnabled = false; this.autoRestartEnabled = false; this.stopListening(); this.showToast('Microfono disattivato', 'error');
-      } else {
-        this.microphoneEnabled = true; this.autoRestartEnabled = true; this.desktopFix.currentRetries = 0; this.desktopFix.consecutiveErrors = 0; this.startListening(); this.showToast('Microfono attivato', 'success');
-      }
-      this.updateMicrophoneUI();
-    }
-
-    updateMicrophoneUI(){
-      if (!this.microphoneEnabled){
-        this.microphoneButton.classList.remove('listening'); this.microphoneButton.classList.add('disabled');
-        this.microphoneStatus.textContent = 'Microfono disattivato - Clicca per attivare';
-        this.microphoneStatus.classList.remove('active'); this.microphoneStatus.classList.add('disabled');
-      } else if (this.isListening){
-        this.microphoneButton.classList.add('listening'); this.microphoneButton.classList.remove('disabled');
-        this.microphoneStatus.textContent = 'Microfono attivo - Parla ora';
-        this.microphoneStatus.classList.add('active'); this.microphoneStatus.classList.remove('disabled');
-      } else {
-        this.microphoneButton.classList.remove('listening', 'disabled');
-        this.microphoneStatus.textContent = 'Microfono sempre attivo';
-        this.microphoneStatus.classList.remove('active', 'disabled');
-      }
-    }
-
-    pauseRecognition(){
-      this.wasListeningPreTts = this.isListening;
-      if (this.isListening) this.stopListening();
-      this.resumeAfterTts = true;
-    }
-    resumeRecognitionSafe(){
-      setTimeout(()=>{
-        if (this.resumeAfterTts && this.wasListeningPreTts){
-          if (this.microphoneEnabled && !this.isListening) this.startListening();
+        if (this.desktopFix.consecutiveErrors > 2) {
+          restartDelay = Math.min(8000, this.desktopFix.adaptiveDelay * Math.pow(1.5, this.desktopFix.consecutiveErrors - 2));
         }
-        this.resumeAfterTts = false; this.wasListeningPreTts = false;
-      }, this.postTtsCooldownMs);
-    }
-
-    processVoiceInput(text){
-      this.isProcessing = true;
-      this.addMessage(text, 'user');
-      this.sendToAssistant(text);
-      setTimeout(()=>{ this.isProcessing = false; }, 3000);
-    }
-
-    addMessage(content, type){
-      const div = document.createElement('div');
-      div.className = `message ${type}`;
-      div.textContent = content;
-      this.chatContainer.appendChild(div);
-      this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
-    }
-
-    sendMessage(){
-      const message = this.chatInput.value.trim();
-      if (message){
-        this.addMessage(message, 'user');
-        this.sendToAssistant(message);
-        this.chatInput.value = '';
-      }
-    }
-
-    async sendToAssistant(message){
-      this.showTyping();
-      try{
-        this.conversationHistory.push({ role: 'user', content: message });
-        let response;
-        if (!this.isApiConfigured){
-          response = this.getDemoResponse(message);
-        } else {
-          const apiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
-            body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [
-                { role: 'system', content: 'Sei Alu, un assistente di supporto psicologico empatico e professionale. Rispondi sempre in italiano con calore e comprensione. Mantieni le risposte concise ma significative (massimo 150 parole). Se rilevi situazioni di emergenza, suggerisci di contattare professionisti qualificati. Usa un tono caldo e rassicurante.' },
-                ...this.conversationHistory.slice(-10)
-              ],
-              max_tokens: 400,
-              temperature: 0.7
-            })
-          });
-          if (!apiResponse.ok) throw new Error(`API Error: ${apiResponse.status}`);
-          const data = await apiResponse.json();
-          response = data.choices?.[0]?.message?.content || this.getDemoResponse(message);
+        switch (error) {
+          case 'not-allowed':
+            this.autoRestartEnabled = false; shouldRestart = false;
+            this.showToast('Permessi microfono negati. Clicca il microfono per riprovare.', 'error'); break;
+          case 'audio-capture':
+            if (this.desktopFix.consecutiveErrors > 2) { shouldRestart = false; this.showToast('Problema con il microfono. Controlla le impostazioni.', 'error'); }
+            else restartDelay = 3000; break;
+          default: break;
         }
-        this.conversationHistory.push({ role: 'assistant', content: response });
-        this.hideTyping();
-        this.addMessage(response, 'assistant');
+        const timeSinceSuccess = Date.now() - this.desktopFix.lastSuccessTime;
+        if (timeSinceSuccess > 60000 && this.desktopFix.consecutiveErrors > 3) shouldRestart = false;
 
-        this.ignoreAsrUntil = Date.now() + 2000;
-        if (this.isElevenLabsConfigured && this.voiceId) { await this.speakWithElevenLabs(response); }
-        else { this.speakWithNativeTTS(response); }
-
-        if (this.conversationHistory.length > 40) this.conversationHistory = this.conversationHistory.slice(-20);
-      } catch (err){
-        this.hideTyping();
-        const demo = this.getDemoResponse(message);
-        this.addMessage(demo, 'assistant');
-        this.ignoreAsrUntil = Date.now() + 2000;
-        if (this.isElevenLabsConfigured && this.voiceId) { await this.speakWithElevenLabs(demo); }
-        else { this.speakWithNativeTTS(demo); }
+        if (shouldRestart && this.autoRestartEnabled && this.microphoneEnabled && !this.isSpeaking) {
+          this.restartTimeout = setTimeout(() => {
+            if (this.autoRestartEnabled && !this.isListening && this.microphoneEnabled && !this.isSpeaking) {
+              this.startListening();
+            }
+          }, restartDelay);
+        }
+        this.isListening = false;
+        this.updateMicrophoneUI();
       }
-    }
 
-    async speakWithElevenLabs(text){
-      try{
-        if (!this.isElevenLabsConfigured || !this.voiceId) return this.speakWithNativeTTS(text);
-        const cleanText = text.replace(/[🔥💙✅❌⚠️🆘🎤💬🔒]/g,'').trim() || ' ';
-        const ctrl = new AbortController(); const tid = setTimeout(()=>ctrl.abort('timeout'), 12000);
-        const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`, {
-          method: 'POST',
-          signal: ctrl.signal,
-          headers: { 'Accept':'audio/mpeg','Content-Type':'application/json','xi-api-key': this.elevenLabsKey },
-          body: JSON.stringify({ text: cleanText, model_id:'eleven_multilingual_v2', voice_settings:{ stability:0.6, similarity_boost:0.7, style:0.4, use_speaker_boost:true } })
+      scheduleSmartRestart() {
+        let delay = this.desktopFix.isDesktop ? 2500 : 1500;
+        if (this.desktopFix.consecutiveErrors > 0) delay += this.desktopFix.consecutiveErrors * 500;
+        delay = Math.min(delay, 6000);
+        this.restartTimeout = setTimeout(() => {
+          if (this.autoRestartEnabled && !this.isListening && !this.isProcessing && this.microphoneEnabled && !this.isSpeaking) {
+            this.startListening();
+          }
+        }, delay);
+      }
+
+      initEventListeners() {
+        this.microphoneButton?.addEventListener('click', () => this.toggleMicrophone());
+        this.sendButton?.addEventListener('click', () => this.sendMessage());
+        this.chatInput?.addEventListener('keypress', (e) => { if (e.key === 'Enter') this.sendMessage(); });
+        this.themeToggle?.addEventListener('click', () => this.toggleTheme());
+
+        document.getElementById('privacyButton')?.addEventListener('click', () => this.showPrivacyModal());
+        document.getElementById('closePrivacy')?.addEventListener('click', () => this.hidePrivacyModal());
+        document.getElementById('closeAdmin')?.addEventListener('click', () => this.hideAdminModal());
+
+        document.addEventListener('click', (e) => {
+          if (e.target === this.privacyModal) this.hidePrivacyModal();
+          if (e.target === this.adminModal) this.hideAdminModal();
         });
-        clearTimeout(tid);
-        if (!res.ok) throw new Error(`ElevenLabs API Error: ${res.status}`);
-        const blob = await res.blob(); const url = URL.createObjectURL(blob);
-        const audio = new Audio(url); audio.volume = 0.8;
-        audio.onplay = () => { this.isSpeaking = true; this.pauseRecognition(); };
-        audio.onended = () => { URL.revokeObjectURL(url); this.isSpeaking = false; this.resumeRecognitionSafe(); };
-        audio.onerror = () => { URL.revokeObjectURL(url); this.isSpeaking = false; this.resumeRecognitionSafe(); this.speakWithNativeTTS(text); };
-        await audio.play();
-      } catch (e){
-        this.isSpeaking = false; this.resumeRecognitionSafe(); this.speakWithNativeTTS(text);
-        if (String(e).includes('timeout')) this.showToast('Voce esterna lenta, uso quella di sistema', 'error');
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') { this.hidePrivacyModal(); this.hideAdminModal(); }
+        });
+        document.addEventListener('dblclick', (e) => {
+          if (e.target === document.body) {
+            const code = prompt('Codice amministratore:');
+            if (code === 'ALUIA2025') {
+              this.adminBtn.style.display = 'block';
+              this.showToast('Modalità amministratore attivata', 'success');
+            }
+          }
+        });
+        this.adminBtn?.addEventListener('click', () => this.showAdminModal());
+
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) {
+            if (this.isListening) { this.autoRestartEnabled = false; this.stopListening(); }
+          } else {
+            setTimeout(() => {
+              this.autoRestartEnabled = true; this.desktopFix.consecutiveErrors = 0;
+              if (!this.isListening && this.microphoneEnabled && !this.isSpeaking) { this.startListening(); }
+            }, 1000);
+          }
+        });
       }
-    }
 
-    initVoicesOnce(){
-      if (!('speechSynthesis' in window)) return;
-      const assign = () => {
-        const voices = speechSynthesis.getVoices();
-        const it = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('it'));
-        this._italianVoice = it || null;
-      };
-      assign();
-      try{ window.speechSynthesis.addEventListener('voiceschanged', assign, { once: true }); }catch{}
-    }
+      async startAutoListening() {
+        try {
+          if (!isSecureLikeContext()) {
+            this.showToast('Apri la pagina in HTTPS o localhost per attivare il microfono', 'error');
+            return;
+          }
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+          stream.getTracks().forEach(t => t.stop());
+          setTimeout(() => { if (this.microphoneEnabled) this.startListening(); }, this.desktopFix.isDesktop ? 2000 : 1000);
+        } catch (error) {
+          this.showToast('Permessi microfono richiesti per funzionare', 'error');
+        }
+      }
 
-    speakWithNativeTTS(text){
-      if ('speechSynthesis' in window){
+      startListening() {
+        if (this.recognition && !this.isListening && this.microphoneEnabled) {
+          try { this.recognition.start(); }
+          catch (error) {
+            this.desktopFix.consecutiveErrors++;
+            const retryDelay = this.desktopFix.isDesktop ? 3000 : 2000;
+            setTimeout(() => {
+              if (!this.isListening && this.autoRestartEnabled && this.desktopFix.consecutiveErrors < 5 && this.microphoneEnabled && !this.isSpeaking) {
+                this.startListening();
+              }
+            }, retryDelay);
+          }
+        }
+      }
+
+      stopListening() {
+        if (this.recognition && this.isListening) {
+          this.recognition.stop();
+          if (this.restartTimeout) { clearTimeout(this.restartTimeout); this.restartTimeout = null; }
+        }
+      }
+
+      toggleMicrophone() {
+        if (this.microphoneEnabled) {
+          this.microphoneEnabled = false; this.autoRestartEnabled = false; this.stopListening();
+          this.showToast('Microfono disattivato', 'error');
+        } else {
+          this.microphoneEnabled = true; this.autoRestartEnabled = true;
+          this.desktopFix.currentRetries = 0; this.desktopFix.consecutiveErrors = 0;
+          this.startListening(); this.showToast('Microfono attivato', 'success');
+        }
+        this.updateMicrophoneUI();
+      }
+
+      updateMicrophoneUI() {
+        if (!this.microphoneEnabled) {
+          this.microphoneButton.classList.remove('listening');
+          this.microphoneButton.classList.add('disabled');
+          this.microphoneStatus.textContent = 'Microfono disattivato - Clicca per attivare';
+          this.microphoneStatus.classList.remove('active');
+          this.microphoneStatus.classList.add('disabled');
+        } else if (this.isListening) {
+          this.microphoneButton.classList.add('listening');
+          this.microphoneButton.classList.remove('disabled');
+          this.microphoneStatus.textContent = 'Microfono attivo - Parla ora';
+          this.microphoneStatus.classList.add('active');
+          this.microphoneStatus.classList.remove('disabled');
+        } else {
+          this.microphoneButton.classList.remove('listening', 'disabled');
+          this.microphoneStatus.textContent = 'Microfono sempre attivo';
+          this.microphoneStatus.classList.remove('active', 'disabled');
+        }
+      }
+
+      pauseRecognition() {
+        this.wasListeningPreTts = this.isListening;
+        if (this.isListening) this.stopListening();
+        this.resumeAfterTts = true;
+      }
+      resumeRecognitionSafe() {
+        setTimeout(() => {
+          if (this.resumeAfterTts && this.wasListeningPreTts) {
+            if (this.microphoneEnabled && !this.isListening) this.startListening();
+          }
+          this.resumeAfterTts = false; this.wasListeningPreTts = false;
+        }, this.postTtsCooldownMs);
+      }
+
+      processVoiceInput(text) {
+        this.isProcessing = true;
+        this.addMessage(text, 'user');
+        this.sendToAssistant(text);
+        setTimeout(() => { this.isProcessing = false; }, 3000);
+      }
+
+      addMessage(content, type) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type}`;
+        messageDiv.textContent = content;
+        this.chatContainer.appendChild(messageDiv);
+        this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+      }
+
+      sendMessage() {
+        const message = this.chatInput.value.trim();
+        if (message) {
+          this.addMessage(message, 'user');
+          this.sendToAssistant(message);
+          this.chatInput.value = '';
+        }
+      }
+
+      async sendToAssistant(message) {
+        this.showTyping();
+        try {
+          this.conversationHistory.push({ role: 'user', content: message });
+
+          let edvResult;
+          if (window.EDV && EDV.chat) {
+            edvResult = await EDV.chat({
+              messages: this.conversationHistory.slice(-10),
+              assistantId: this.assistantId || undefined
+            });
+          } else {
+            const res = await fetch('/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({
+                messages: this.conversationHistory.slice(-10),
+                assistantId: this.assistantId || undefined
+              })
+            });
+            if (!res.ok) throw new Error('API Error ' + res.status);
+            const data = await res.json();
+            edvResult = {
+              raw: data,
+              content: data?.content ?? data?.message ?? data?.reply ??
+                (Array.isArray(data?.choices) ? data.choices?.[0]?.message?.content : undefined)
+            };
+          }
+
+          const response = edvResult.content || this.getDemoResponse(message);
+
+          this.setStatus('connected', '✅ Connesso a OpenAI');
+          this.conversationHistory.push({ role: 'assistant', content: response });
+          this.hideTyping();
+          this.addMessage(response, 'assistant');
+
+          this.ignoreAsrUntil = Date.now() + 2000;
+          await this.speakWithOpenAI(response);
+
+          if (this.conversationHistory.length > 40) {
+            this.conversationHistory = this.conversationHistory.slice(-20);
+          }
+        } catch (err) {
+          console.warn('sendToAssistant error:', err);
+          this.hideTyping();
+          const fallback = this.getDemoResponse(message);
+          this.addMessage(fallback, 'assistant');
+          this.ignoreAsrUntil = Date.now() + 2000;
+          this.speakWithNativeTTS(fallback);
+          this.setStatus('error', '❌ Errore connessione');
+          this.showToast('Errore di rete o endpoint non raggiungibile', 'error');
+        }
+      }
+
+      async speakWithOpenAI(text) {
+        try {
+          const cleanText = (text || '').replace(/[🔥💙✅❌⚠️🆘🎤💬🔒]/g, '').trim() || ' ';
+
+          let audioBlob;
+          if (window.EDV && EDV.tts) {
+            audioBlob = await EDV.tts({ text: cleanText, voiceId: this.voiceId || undefined });
+          } else {
+            const res = await fetch('/api/tts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: cleanText, voiceId: this.voiceId || undefined })
+            });
+            if (!res.ok) throw new Error('TTS API ' + res.status);
+            audioBlob = await res.blob();
+          }
+
+          const url = URL.createObjectURL(audioBlob);
+          const audio = new Audio(url);
+          audio.volume = 0.8;
+
+          audio.onplay = () => { this.isSpeaking = true; this.pauseRecognition(); };
+          audio.onended = () => { URL.revokeObjectURL(url); this.isSpeaking = false; this.resumeRecognitionSafe(); };
+          audio.onerror = () => {
+            URL.revokeObjectURL(url);
+            this.isSpeaking = false;
+            this.resumeRecognitionSafe();
+            this.speakWithNativeTTS(text);
+          };
+
+          await audio.play();
+          this.setStatus('connected', '🔊 Voce OpenAI attiva');
+        } catch (e) {
+          console.warn('TTS error, uso voce nativa:', e);
+          this.speakWithNativeTTS(text);
+          this.showToast('Voce OpenAI non disponibile: uso quella di sistema', 'error');
+        }
+      }
+
+      initVoicesOnce() {
+        if (!('speechSynthesis' in window)) return;
+        const assign = () => {
+          const voices = speechSynthesis.getVoices();
+          const it = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('it'));
+          this._italianVoice = it || null;
+        };
+        assign();
+        try { window.speechSynthesis.addEventListener('voiceschanged', assign, { once: true }); } catch { }
+      }
+
+      speakWithNativeTTS(text) {
+        if (!('speechSynthesis' in window)) return;
         speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text);
         u.lang = 'it-IT'; u.rate = 0.85; u.pitch = 1.1; u.volume = 0.8;
         if (this._italianVoice) u.voice = this._italianVoice;
         u.onstart = () => { this.isSpeaking = true; this.pauseRecognition(); };
-        u.onend   = () => { this.isSpeaking = false; this.resumeRecognitionSafe(); };
+        u.onend = () => { this.isSpeaking = false; this.resumeRecognitionSafe(); };
         u.onerror = () => { this.isSpeaking = false; this.resumeRecognitionSafe(); };
         speechSynthesis.speak(u);
       }
+
+      getDemoResponse(message) {
+        const responses = [
+          "Ti ascolto e capisco quello che stai vivendo. È normale sentirsi così a volte.",
+          "Grazie per aver condiviso questo con me. Come ti senti ora dopo averlo espresso?",
+          "Quello che provi è valido e importante. Vuoi parlarmi di più di questa situazione?",
+          "Ti sono vicina in questo momento. Ricorda che non sei solo in questo percorso.",
+          "È un passo importante quello di parlarne. Come posso aiutarti a sentirti meglio?",
+          "Comprendo la tua preoccupazione. Insieme possiamo trovare delle strategie per affrontarla.",
+          "Le tue emozioni sono importanti. Prenditi il tempo che ti serve per elaborarle.",
+          "Sono qui per ascoltarti senza giudicare. Cosa ti passa per la mente in questo momento?",
+          "Capisco che possa essere difficile. Vuoi provare a respirare insieme per qualche minuto?",
+          "La tua esperienza è unica e preziosa. Come posso supportarti meglio oggi?"
+        ];
+        const lower = (message || '').toLowerCase();
+        if (lower.includes('suicid') || lower.includes('morte') || lower.includes('farla finita')) {
+          return "Mi preoccupo molto per te. È fondamentale che tu parli immediatamente con un professionista qualificato. Contatta il tuo medico, un centro di salute mentale o i servizi di emergenza. La tua vita ha un valore immenso e ci sono persone pronte ad aiutarti. 🆘";
+        }
+        if (lower.includes('panico') || lower.includes('ansia') || lower.includes('attacco')) {
+          return "Capisco che stai attraversando un momento molto difficile. Proviamo insieme: inspira lentamente per 4 secondi, trattieni per 4, poi espira per 6. Ripeti. Se gli attacchi sono frequenti, confrontati con un professionista. 💙";
+        }
+        if (lower.includes('solo') || lower.includes('abbandon') || lower.includes('isolat')) {
+          return "Non sei davvero solo, anche se ora può sembrare così. I sentimenti di solitudine sono dolorosi ma temporanei. Vuoi dirmi cosa ti fa sentire più isolato?";
+        }
+        return responses[Math.floor(Math.random() * responses.length)];
+      }
+
+      applyTheme() {
+        if (this.isDarkMode) { document.body.classList.add('dark-mode'); this.themeToggle.textContent = '☀️'; }
+        else { document.body.classList.remove('dark-mode'); this.themeToggle.textContent = '🌙'; }
+      }
+      toggleTheme() {
+        this.isDarkMode = !this.isDarkMode;
+        localStorage.setItem('aluia_theme', this.isDarkMode ? 'dark' : 'light');
+        this.applyTheme();
+        this.showToast(`Tema ${this.isDarkMode ? 'scuro' : 'chiaro'} attivato`);
+      }
+
+      showPrivacyModal() { this.privacyModal.style.display = 'block'; }
+      hidePrivacyModal() { this.privacyModal.style.display = 'none'; }
+      showAdminModal() {
+        document.getElementById('assistantId').value = this.assistantId;
+        document.getElementById('voiceId').value = this.voiceId;
+        this.adminModal.style.display = 'block';
+      }
+      hideAdminModal() { this.adminModal.style.display = 'none'; }
+
+      saveAdminConfig() {
+        const assistantId = document.getElementById('assistantId').value.trim();
+        const voiceId = document.getElementById('voiceId').value.trim();
+        this.assistantId = assistantId;
+        this.voiceId = voiceId || this.voiceId;
+        localStorage.setItem('aluia_assistant_id', this.assistantId);
+        localStorage.setItem('aluia_voice_id', this.voiceId);
+        this.hideAdminModal();
+        this.showToast('Configurazione salvata', 'success');
+      }
+
+      showTyping() { this.typingIndicator.style.display = 'flex'; this.chatContainer.scrollTop = this.chatContainer.scrollHeight; }
+      hideTyping() { this.typingIndicator.style.display = 'none'; }
+      showToast(message, type = 'success') {
+        const t = document.createElement('div');
+        t.className = `toast ${type}`; t.textContent = message;
+        document.body.appendChild(t);
+        setTimeout(() => t.classList.add('show'), 100);
+        setTimeout(() => { t.classList.remove('show'); setTimeout(() => { if (document.body.contains(t)) document.body.removeChild(t); }, 300); }, 4000);
+      }
     }
 
-    getDemoResponse(message){
-      const responses = [
-        "Ti ascolto e capisco quello che stai vivendo. È normale sentirsi così a volte.",
-        "Grazie per aver condiviso questo con me. Come ti senti ora dopo averlo espresso?",
-        "Quello che provi è valido e importante. Vuoi parlarmi di più di questa situazione?",
-        "Ti sono vicina in questo momento. Ricorda che non sei solo in questo percorso.",
-        "È un passo importante quello di parlarne. Come posso aiutarti a sentirti meglio?",
-        "Comprendo la tua preoccupazione. Insieme possiamo trovare delle strategie per affrontarla.",
-        "Le tue emozioni sono importanti. Prenditi il tempo che ti serve per elaborarle.",
-        "Sono qui per ascoltarti senza giudicare. Cosa ti passa per la mente in questo momento?",
-        "Capisco che possa essere difficile. Vuoi provare a respirare insieme per qualche minuto?",
-        "La tua esperienza è unica e preziosa. Come posso supportarti meglio oggi?"
-      ];
-      const lower = message.toLowerCase();
-      if (lower.includes('suicid') || lower.includes('morte') || lower.includes('farla finita')) return "Mi preoccupo molto per te. È fondamentale che tu parli immediatamente con un professionista qualificato. Contatta il tuo medico, un centro di salute mentale o i servizi di emergenza. La tua vita ha un valore immenso e ci sono persone pronte ad aiutarti. 🆘";
-      if (lower.includes('panico') || lower.includes('ansia') || lower.includes('attacco')) return "Capisco che stai attraversando un momento molto difficile. Proviamo insieme: inspira lentamente per 4 secondi, trattieni il respiro per 4, poi espira per 6 secondi. Ripeti questo ciclo. Se gli attacchi sono frequenti, è importante consultare un professionista. Sono qui con te. 💙";
-      if (lower.includes('solo') || lower.includes('abbandon') || lower.includes('isolat')) return "Non sei davvero solo, anche se ora può sembrare così. I sentimenti di solitudine sono dolorosi ma temporanei. Ci sono persone che si preoccupano per te, anche se non sempre è evidente. Vuoi parlare di cosa ti fa sentire più isolato?";
-      return responses[Math.floor(Math.random()*responses.length)];
-    }
+    document.addEventListener('DOMContentLoaded', () => { window.aluia = new AluIA(); });
 
-    showTyping(){ this.typingIndicator.style.display = 'flex'; this.chatContainer.scrollTop = this.chatContainer.scrollHeight; }
-    hideTyping(){ this.typingIndicator.style.display = 'none'; }
-
-    applyTheme(){ if (this.isDarkMode){ document.body.classList.add('dark-mode'); this.themeToggle.textContent = '☀️'; } else { document.body.classList.remove('dark-mode'); this.themeToggle.textContent = '🌙'; } }
-    toggleTheme(){ this.isDarkMode = !this.isDarkMode; localStorage.setItem('aluia_theme', this.isDarkMode ? 'dark' : 'light'); this.applyTheme(); this.showToast(`Tema ${this.isDarkMode ? 'scuro' : 'chiaro'} attivato`); }
-
-    showPrivacyModal(){ this.privacyModal.style.display = 'block'; }
-    hidePrivacyModal(){ this.privacyModal.style.display = 'none'; }
-    showAdminModal(){
-      document.getElementById('apiKey').value = this.apiKey;
-      document.getElementById('elevenLabsKey').value = this.elevenLabsKey;
-      document.getElementById('assistantId').value = this.assistantId;
-      document.getElementById('voiceId').value = this.voiceId;
-      this.adminModal.style.display = 'block';
-    }
-    hideAdminModal(){ this.adminModal.style.display = 'none'; }
-
-    saveAdminConfig(){
-      const apiKey = document.getElementById('apiKey').value.trim();
-      const elevenLabsKey = document.getElementById('elevenLabsKey').value.trim();
-      const assistantId = document.getElementById('assistantId').value.trim();
-      const voiceId = document.getElementById('voiceId').value.trim();
-      if (apiKey && !apiKey.startsWith('sk-')){ this.showToast('OpenAI API Key non valida (deve iniziare con sk-)', 'error'); return; }
-      if (elevenLabsKey && !elevenLabsKey.startsWith('sk_')){ this.showToast('ElevenLabs API Key non valida (deve iniziare con sk_)', 'error'); return; }
-      this.apiKey = apiKey; this.elevenLabsKey = elevenLabsKey; this.assistantId = assistantId; this.voiceId = voiceId || this.voiceId;
-      localStorage.setItem('aluia_api_key', this.apiKey);
-      localStorage.setItem('aluia_elevenlabs_key', this.elevenLabsKey);
-      localStorage.setItem('aluia_assistant_id', this.assistantId);
-      localStorage.setItem('aluia_voice_id', this.voiceId);
-      this.isApiConfigured = this.apiKey.length > 0; this.isElevenLabsConfigured = this.elevenLabsKey.length > 0;
-      this.updateUI(); this.hideAdminModal();
-      let msg = 'Configurazione salvata!'; 
-      if (this.isApiConfigured && this.isElevenLabsConfigured) msg += ' OpenAI + ElevenLabs attivati.'; else if (this.isApiConfigured) msg += ' OpenAI attivato.'; else if (this.isElevenLabsConfigured) msg += ' ElevenLabs attivato.';
-      this.showToast(msg, 'success');
-    }
-
-    updateUI(){
-      if (this.isElevenLabsConfigured && (this.voiceId?.length)) { this.statusBar.textContent = '✅ Alu Pronta (AI + Voice)'; this.statusBar.className = 'status-bar elevenlabs'; }
-      else if (this.isApiConfigured) { this.statusBar.textContent = '✅ Alu Pronta (API)'; this.statusBar.className = 'status-bar connected'; }
-      else { this.statusBar.textContent = '⚠️ Modalità Demo'; this.statusBar.className = 'status-bar'; }
-    }
-
-    showToast(message, type='success'){
-      const toast = document.createElement('div'); toast.className = `toast ${type}`; toast.textContent = message; document.body.appendChild(toast);
-      setTimeout(()=>toast.classList.add('show'), 100);
-      setTimeout(()=>{ toast.classList.remove('show'); setTimeout(()=>{ if (document.body.contains(toast)) document.body.removeChild(toast); }, 300); }, 4000);
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded', () => { window.aluia = new AluIA(); });
-  window.testMic = () => window.aluia?.toggleMicrophone();
-  window.testChat = () => { const a=window.aluia; if (!a) return; a.chatInput.value="Ciao Alu, questo è un test"; a.sendMessage(); };
-  window.debugMic = () => { const a=window.aluia; console.log({ isListening:a?.isListening, microphoneEnabled:a?.microphoneEnabled, isProcessing:a?.isProcessing, autoRestartEnabled:a?.autoRestartEnabled, isSpeaking:a?.isSpeaking, desktopFix:a?.desktopFix }); };
-  window.resetMic = () => { const a=window.aluia; if (!a) return; a.microphoneEnabled = true; a.autoRestartEnabled = true; a.stopListening(); a.desktopFix.currentRetries = 0; a.desktopFix.consecutiveErrors = 0; a.desktopFix.errorCount = 0; setTimeout(()=>{ a.startListening(); a.showToast('Microfono resettato', 'success'); }, 2000); };
+    window.testMic = () => window.aluia?.toggleMicrophone();
+    window.testChat = () => { const a = window.aluia; if (!a) return; a.chatInput.value = "Ciao Alu, questo è un test"; a.sendMessage(); };
+    window.debugMic = () => { const a = window.aluia; console.log({ isListening: a?.isListening, microphoneEnabled: a?.microphoneEnabled, isProcessing: a?.isProcessing, autoRestartEnabled: a?.autoRestartEnabled, isSpeaking: a?.isSpeaking }); };
+    window.resetMic = () => { const a = window.aluia; if (!a) return; a.microphoneEnabled = true; a.autoRestartEnabled = true; a.stopListening(); setTimeout(() => { a.startListening(); a.showToast('Microfono resettato', 'success'); }, 1200); };
   </script>
 </body>
 </html>
-
