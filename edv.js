@@ -1,4 +1,4 @@
-// public/edv.js
+// edv.js
 (function (global) {
   const EDV = {};
   
