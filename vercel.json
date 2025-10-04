@@ -6,6 +6,10 @@
       "use": "@vercel/static"
     },
     {
+      "src": "edv.js",
+      "use": "@vercel/static"
+    },
+    {
       "src": "api/**/*.js",
       "use": "@vercel/node"
     }
@@ -14,10 +18,6 @@
     {
       "src": "/api/(.*)",
       "dest": "/api/$1"
-    },
-    {
-      "src": "/edv.js",
-      "dest": "/public/edv.js"
     },
     {
       "src": "/(.*)",

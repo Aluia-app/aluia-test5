@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>AluIA - Supporto Psicologico</title>
-  <script src="/edv.js" defer></script>
+  <script src="./edv.js" defer></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -17,6 +17,8 @@
     @media (max-width: 768px) { .container { grid-template-columns: 1fr; gap: 20px; } }
     .card { background: rgba(255,255,255,0.98); border-radius: 20px; padding: 30px; box-shadow: 0 8px 32px rgba(0,0,0,0.06); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.8); transition: all 0.3s ease; }
     body.dark-mode .card { background: rgba(52,73,94,0.95); color: #ecf0f1; border: 1px solid rgba(255,255,255,0.1); }
+    .card ol { color: #52637a; }
+    body.dark-mode .card ol { color: #d5dde5; }
     .header { text-align: center; margin-bottom: 30px; grid-column: 1 / -1; }
     .header h1 { font-size: 3rem; color: #4A90E2; margin-bottom: 10px; font-weight: 600; }
     body.dark-mode .header h1 { color: #74b9ff; }
@@ -130,6 +132,18 @@
     <div class="header card">
       <h1>AluIA</h1>
       <p>Supporto psicologico intelligente sempre al tuo fianco</p>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">🧭 Guida rapida</h2>
+      <ol style="color:#52637a; line-height:1.6; margin-left:18px;">
+        <li><strong>Se stai guardando il repository su GitHub vedrai solo il codice</strong>: per usare l'app devi aprirla da gTab o da un server web (HTTPS o <code>localhost</code>).</li>
+        <li><strong>Apri la pagina da gTab in HTTPS</strong> oppure su <code>localhost</code> per poter abilitare il microfono.</li>
+        <li>Clicca l'icona 🔒 del browser e <strong>consenti l'accesso al microfono</strong>, poi ricarica la scheda se richiesto.</li>
+        <li><strong>Doppio clic sullo sfondo</strong> della pagina e inserisci il codice <code>ALUIA2025</code> per sbloccare il pannello ⚙️.</li>
+        <li>Nel pannello amministratore inserisci l'<em>Assistant ID</em> se disponibile e verifica che il <em>Prompt ID</em> sia <code>pmpt_68b5876fea1081908e6b472c85d6489a042e34dea2f3df83</code>.</li>
+        <li>Scegli la voce desiderata, salva la configurazione e prova il microfono con il pulsante grande blu.</li>
+      </ol>
     </div>
 
     <div class="card">
@@ -248,6 +262,8 @@
       <div class="admin-form">
         <label for="assistantId">Assistant ID (opzionale):</label>
         <input type="text" id="assistantId" placeholder="asst_...">
+        <label for="promptId">Prompt ID (opzionale):</label>
+        <input type="text" id="promptId" placeholder="pmpt_...">
         <label for="voiceId">Voce OpenAI TTS:</label>
         <select id="voiceId">
           <option value="nova" selected>Nova (femminile calda - consigliata)</option>
@@ -264,11 +280,14 @@
 
   <script>
     console.log('🚀 Avvio AluIA - Versione OpenAI TTS');
+    const DEFAULT_PROMPT_ID = 'pmpt_68b5876fea1081908e6b472c85d6489a042e34dea2f3df83';
 
     function isSecureLikeContext(){
       const {protocol, hostname} = location;
       return protocol === 'https:' || hostname === 'localhost' || hostname === '127.0.0.1';
     }
+
+    const ADMIN_UNLOCK_CODE = 'ALUIA2025';
 
     class AluIA {
       constructor() {
@@ -281,7 +300,12 @@
         this.isDarkMode = localStorage.getItem('aluia_theme') === 'dark';
         this.assistantId = localStorage.getItem('aluia_assistant_id') || '';
         this.voiceId = localStorage.getItem('aluia_voice_id') || 'nova';
+        const storedPromptId = localStorage.getItem('aluia_prompt_id');
+        this.promptId = storedPromptId && storedPromptId.trim()
+          ? storedPromptId.trim()
+          : DEFAULT_PROMPT_ID;
         this.microphoneEnabled = true;
+        this.adminUnlocked = localStorage.getItem('aluia_admin_unlocked') === 'true';
 
         this.isSpeaking = false;
         this.ignoreAsrUntil = 0;
@@ -300,6 +324,9 @@
         this.initVoicesOnce();
 
         this.setStatus('demo', '⏳ Avvio…');
+        if (this.adminUnlocked && this.adminBtn) {
+          this.adminBtn.style.display = 'block';
+        }
         setTimeout(() => { this.startAutoListening(); }, 1000);
       }
 
@@ -445,7 +472,9 @@
         document.addEventListener('dblclick', (e) => {
           if (e.target === document.body) {
             const code = prompt('Codice amministratore:');
-            if (code === 'ALUIA2025') {
+            if ((code || '').trim() === ADMIN_UNLOCK_CODE) {
+              this.adminUnlocked = true;
+              localStorage.setItem('aluia_admin_unlocked', 'true');
               this.adminBtn.style.display = 'block';
               this.showToast('Modalità amministratore attivata', 'success');
             }
@@ -580,7 +609,8 @@
           if (window.EDV && EDV.chat) {
             edvResult = await EDV.chat({
               messages: this.conversationHistory.slice(-10),
-              assistantId: this.assistantId || undefined
+              assistantId: this.assistantId || undefined,
+              promptId: this.promptId ? this.promptId : undefined
             });
           } else {
             const res = await fetch('/api/chat', {
@@ -588,7 +618,8 @@
               headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
               body: JSON.stringify({
                 messages: this.conversationHistory.slice(-10),
-                assistantId: this.assistantId || undefined
+                assistantId: this.assistantId || undefined,
+                promptId: this.promptId ? this.promptId : undefined
               })
             });
             if (!res.ok) throw new Error('API Error ' + res.status);
@@ -728,6 +759,7 @@
       hidePrivacyModal() { this.privacyModal.style.display = 'none'; }
       showAdminModal() {
         document.getElementById('assistantId').value = this.assistantId;
+        document.getElementById('promptId').value = this.promptId;
         document.getElementById('voiceId').value = this.voiceId;
         this.adminModal.style.display = 'block';
       }
@@ -735,10 +767,13 @@
 
       saveAdminConfig() {
         const assistantId = document.getElementById('assistantId').value.trim();
+        const promptId = document.getElementById('promptId').value.trim();
         const voiceId = document.getElementById('voiceId').value.trim();
         this.assistantId = assistantId;
+        this.promptId = promptId || DEFAULT_PROMPT_ID;
         this.voiceId = voiceId || this.voiceId;
         localStorage.setItem('aluia_assistant_id', this.assistantId);
+        localStorage.setItem('aluia_prompt_id', this.promptId);
         localStorage.setItem('aluia_voice_id', this.voiceId);
         this.hideAdminModal();
         this.showToast('Configurazione salvata', 'success');

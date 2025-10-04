@@ -15,8 +15,10 @@ module.exports = async (req, res) => {
   }
 
   const messages = Array.isArray(body.messages) ? body.messages : [];
-  
-  const sys = `Sei Alu, un assistente di supporto psicologico empatico e professionale. 
+  const assistantId = typeof body.assistantId === 'string' ? body.assistantId.trim() : '';
+  const promptId = typeof body.promptId === 'string' ? body.promptId.trim() : '';
+
+  const sys = `Sei Alu, un assistente di supporto psicologico empatico e professionale.
 Caratteristiche:
 - Rispondi sempre in italiano con tono caldo e comprensivo
 - Massimo 150 parole per risposta
@@ -33,22 +35,43 @@ Caratteristiche:
     });
   }
 
-  const recentMessages = messages.slice(-10);
-  const payload = {
+  const recentMessages = messages.slice(-10).filter(m => m && typeof m.content === 'string');
+
+  const responseMessages = recentMessages.map(m => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: [{ type: 'text', text: m.content }]
+  }));
+
+  const useResponsesApi = Boolean((assistantId && assistantId.startsWith('asst_')) || (promptId && promptId.startsWith('pmpt_')));
+
+  const chatPayload = {
     model: 'gpt-4o-mini',
     temperature: 0.7,
     max_tokens: 400,
     messages: [{ role: 'system', content: sys }, ...recentMessages]
   };
 
+  const responsesPayload = {
+    input: responseMessages.length ? responseMessages : undefined,
+    temperature: 0.7,
+    max_output_tokens: 600
+  };
+
+  if (assistantId) responsesPayload.assistant_id = assistantId;
+  if (!assistantId && promptId) responsesPayload.prompt_id = promptId;
+  if (!responsesPayload.input) delete responsesPayload.input;
+
   try {
-    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    const url = useResponsesApi ? 'https://api.openai.com/v1/responses' : 'https://api.openai.com/v1/chat/completions';
+    const bodyPayload = useResponsesApi ? responsesPayload : chatPayload;
+
+    const r = await fetch(url, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'authorization': `Bearer ${OPENAI_API_KEY}`
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(bodyPayload)
     });
 
     if (!r.ok) {
@@ -61,7 +84,21 @@ Caratteristiche:
     }
 
     const data = await r.json();
-    const content = data?.choices?.[0]?.message?.content || 'Non ho potuto elaborare la richiesta.';
+
+    let content;
+    if (useResponsesApi) {
+      content = data?.output_text
+        || data?.output?.[0]?.content?.[0]?.text?.value
+        || data?.response?.output_text
+        || data?.choices?.[0]?.message?.content;
+    } else {
+      content = data?.choices?.[0]?.message?.content;
+    }
+
+    content = (typeof content === 'string' && content.trim())
+      ? content.trim()
+      : 'Non ho potuto elaborare la richiesta.';
+
     return res.status(200).json({ content, usage: data.usage });
     
   } catch (e) {
