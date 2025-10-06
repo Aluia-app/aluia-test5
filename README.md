@@ -20,8 +20,9 @@
 1. **Sblocca il pannello amministratore**: fai doppio clic sullo sfondo della pagina e inserisci il codice `ALUIA2025`.
 2. Premi l'icona ⚙️ che compare in basso a destra.
 3. Verifica che il campo **Prompt ID** contenga già `pmpt_68b5876fea1081908e6b472c85d6489a042e34dea2f3df83` (il prompt del terapeuta richiesto).
-4. Inserisci l'eventuale **Assistant ID** `asst_...` fornito da OpenAI (opzionale).
-5. Scegli la voce TTS che preferisci e premi **Salva configurazione**.
+4. Inserisci l'eventuale **Endpoint API personalizzato** se stai usando un backend diverso (ad esempio l'URL di Vercel con `/api`).
+5. Inserisci l'eventuale **Assistant ID** `asst_...` fornito da OpenAI (opzionale).
+6. Scegli la voce TTS che preferisci e premi **Salva configurazione**.
 
 Da questo momento puoi parlare con Alu: premi il grande pulsante 🎤 oppure scrivi nella chat testuale.
 
