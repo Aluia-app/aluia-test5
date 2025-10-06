@@ -16,7 +16,9 @@ module.exports = async (req, res) => {
 
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const assistantId = typeof body.assistantId === 'string' ? body.assistantId.trim() : '';
-  const promptId = typeof body.promptId === 'string' ? body.promptId.trim() : '';
+  const bodyPromptId = typeof body.promptId === 'string' ? body.promptId.trim() : '';
+  const DEFAULT_PROMPT_ID = 'pmpt_68b5876fea1081908e6b472c85d6489a042e34dea2f3df83';
+  const effectivePromptId = assistantId ? '' : (bodyPromptId || DEFAULT_PROMPT_ID);
 
   const sys = `Sei Alu, un assistente di supporto psicologico empatico e professionale.
 Caratteristiche:
@@ -42,7 +44,10 @@ Caratteristiche:
     content: [{ type: 'text', text: m.content }]
   }));
 
-  const useResponsesApi = Boolean((assistantId && assistantId.startsWith('asst_')) || (promptId && promptId.startsWith('pmpt_')));
+  const useResponsesApi = Boolean(
+    (assistantId && assistantId.startsWith('asst_'))
+    || (effectivePromptId && effectivePromptId.startsWith('pmpt_'))
+  );
 
   const chatPayload = {
     model: 'gpt-4o-mini',
@@ -58,7 +63,7 @@ Caratteristiche:
   };
 
   if (assistantId) responsesPayload.assistant_id = assistantId;
-  if (!assistantId && promptId) responsesPayload.prompt_id = promptId;
+  if (!assistantId && effectivePromptId) responsesPayload.prompt_id = effectivePromptId;
   if (!responsesPayload.input) delete responsesPayload.input;
 
   try {
