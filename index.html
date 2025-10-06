@@ -455,6 +455,7 @@
     .admin-form input:focus, .admin-form select:focus { border-color: rgba(74, 144, 226, 0.55); box-shadow: 0 0 0 4px rgba(74, 144, 226, 0.12); }
     .admin-form button { background: linear-gradient(135deg, var(--accent-strong), var(--accent)); color: #fff; border: none; padding: 15px 30px; border-radius: 12px; font-size: 1rem; font-weight: bold; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; }
     .admin-form button:hover { transform: translateY(-3px); box-shadow: 0 16px 32px rgba(74, 144, 226, 0.35); }
+    .admin-help { font-size: 0.85rem; color: var(--text-soft); line-height: 1.4; margin-top: -10px; }
 
     .toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) translateY(20px); background: rgba(46, 204, 113, 0.95); color: #fff; padding: 20px 30px; border-radius: 15px; font-weight: bold; z-index: 3000; opacity: 0; transition: all 0.3s ease; backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); text-align: center; max-width: 80%; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2); }
     .toast.error { background: rgba(244, 67, 54, 0.95); }
@@ -507,18 +508,6 @@
     <div class="header card">
       <h1>AluIA</h1>
       <p>Supporto psicologico intelligente sempre al tuo fianco</p>
-    </div>
-
-    <div class="card">
-      <h2 class="section-title">🧭 Guida rapida</h2>
-      <ol style="color:#52637a; line-height:1.6; margin-left:18px;">
-        <li><strong>Se stai guardando il repository su GitHub vedrai solo il codice</strong>: per usare l'app devi aprirla da gTab o da un server web (HTTPS o <code>localhost</code>).</li>
-        <li><strong>Apri la pagina da gTab in HTTPS</strong> oppure su <code>localhost</code> per poter abilitare il microfono.</li>
-        <li>Clicca l'icona 🔒 del browser e <strong>consenti l'accesso al microfono</strong>, poi ricarica la scheda se richiesto.</li>
-        <li><strong>Doppio clic sullo sfondo</strong> della pagina e inserisci il codice <code>ALUIA2025</code> per sbloccare il pannello ⚙️.</li>
-        <li>Nel pannello amministratore inserisci l'<em>Assistant ID</em> se disponibile e verifica che il <em>Prompt ID</em> sia <code>pmpt_68b5876fea1081908e6b472c85d6489a042e34dea2f3df83</code>.</li>
-        <li>Scegli la voce desiderata, salva la configurazione e prova il microfono con il pulsante grande blu.</li>
-      </ol>
     </div>
 
     <div class="card">
@@ -639,6 +628,9 @@
         <input type="text" id="assistantId" placeholder="asst_...">
         <label for="promptId">Prompt ID (opzionale):</label>
         <input type="text" id="promptId" placeholder="pmpt_...">
+        <label for="apiBase">Endpoint API personalizzato (opzionale):</label>
+        <input type="text" id="apiBase" placeholder="https://esempio.vercel.app">
+        <span class="admin-help">Lascia vuoto per usare questo dominio. Inserisci un URL completo (https://...)</span>
         <label for="voiceId">Voce OpenAI TTS:</label>
         <select id="voiceId">
           <option value="nova" selected>Nova (femminile calda - consigliata)</option>
@@ -656,6 +648,10 @@
   <script>
     console.log('🚀 Avvio AluIA - Versione OpenAI TTS');
     const DEFAULT_PROMPT_ID = 'pmpt_68b5876fea1081908e6b472c85d6489a042e34dea2f3df83';
+    const HARD_FALLBACK_API_BASE = 'https://aluia-test5.vercel.app';
+    if (!window.__ALUIA_FALLBACK_API_BASE) {
+      window.__ALUIA_FALLBACK_API_BASE = HARD_FALLBACK_API_BASE;
+    }
 
     function isSecureLikeContext(){
       const {protocol, hostname} = location;
@@ -675,10 +671,13 @@
         this.isDarkMode = localStorage.getItem('aluia_theme') === 'dark';
         this.assistantId = localStorage.getItem('aluia_assistant_id') || '';
         this.voiceId = localStorage.getItem('aluia_voice_id') || 'nova';
+        const storedApiBase = localStorage.getItem('aluia_api_base') || '';
         const storedPromptId = localStorage.getItem('aluia_prompt_id');
         this.promptId = storedPromptId && storedPromptId.trim()
           ? storedPromptId.trim()
           : DEFAULT_PROMPT_ID;
+        this.apiBase = '';
+        this.updateApiBase(storedApiBase);
         this.microphoneEnabled = true;
         this.adminUnlocked = localStorage.getItem('aluia_admin_unlocked') === 'true';
 
@@ -705,6 +704,35 @@
           this.adminBtn.style.display = 'block';
         }
         setTimeout(() => { this.startAutoListening(); }, 1000);
+      }
+
+      sanitizeApiBase(base) {
+        if (!base || typeof base !== 'string') return '';
+        let trimmed = base.trim();
+        if (!trimmed) return '';
+        if (!/^https?:\/\//i.test(trimmed)) {
+          const isLocal = /^localhost(?::|$)/i.test(trimmed) || /^127\.0\.0\.1(?::|$)/.test(trimmed);
+          trimmed = `${isLocal ? 'http' : 'https'}://${trimmed}`;
+        }
+        return trimmed.replace(/\/+$/, '');
+      }
+
+      updateApiBase(base) {
+        const sanitized = this.sanitizeApiBase(base);
+        this.apiBase = sanitized;
+        if (sanitized) {
+          localStorage.setItem('aluia_api_base', sanitized);
+        } else {
+          localStorage.removeItem('aluia_api_base');
+        }
+        window.__ALUIA_API_BASE = sanitized || '';
+        return sanitized;
+      }
+
+      getApiUrl(path) {
+        const base = this.apiBase;
+        if (!base) return path;
+        return `${base}${path}`;
       }
 
       setStatus(kind, text) {
@@ -998,6 +1026,7 @@
         try {
           this.conversationHistory.push({ role: 'user', content: message });
 
+          window.__ALUIA_API_BASE = this.apiBase || '';
           let edvResult;
           if (window.EDV && EDV.chat) {
             edvResult = await EDV.chat({
@@ -1006,7 +1035,8 @@
               promptId: this.promptId ? this.promptId : undefined
             });
           } else {
-            const res = await fetch('/api/chat', {
+            const endpoint = this.getApiUrl('/api/chat');
+            const res = await fetch(endpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
               body: JSON.stringify({
@@ -1094,7 +1124,8 @@
           if (window.EDV && EDV.tts) {
             audioBlob = await EDV.tts({ text: cleanText, voiceId: this.voiceId || undefined });
           } else {
-            const res = await fetch('/api/tts', {
+            const endpoint = this.getApiUrl('/api/tts');
+            const res = await fetch(endpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ text: cleanText, voiceId: this.voiceId || undefined })
@@ -1191,6 +1222,7 @@
         document.getElementById('assistantId').value = this.assistantId;
         document.getElementById('promptId').value = this.promptId;
         document.getElementById('voiceId').value = this.voiceId;
+        document.getElementById('apiBase').value = this.apiBase;
         this.adminModal.style.display = 'block';
       }
       hideAdminModal() { this.adminModal.style.display = 'none'; }
@@ -1199,12 +1231,18 @@
         const assistantId = document.getElementById('assistantId').value.trim();
         const promptId = document.getElementById('promptId').value.trim();
         const voiceId = document.getElementById('voiceId').value.trim();
+        const apiBase = document.getElementById('apiBase').value;
         this.assistantId = assistantId;
         this.promptId = promptId || DEFAULT_PROMPT_ID;
         this.voiceId = voiceId || this.voiceId;
+        const sanitizedBase = this.updateApiBase(apiBase);
         localStorage.setItem('aluia_assistant_id', this.assistantId);
         localStorage.setItem('aluia_prompt_id', this.promptId);
         localStorage.setItem('aluia_voice_id', this.voiceId);
+        if (!sanitizedBase) {
+          // ensure default demo message prompts user to configure endpoint if missing
+          this.setStatus('demo', '⚠️ Modalità demo - configura le API per parlare con Alu');
+        }
         this.hideAdminModal();
         this.showToast('Configurazione salvata', 'success');
       }

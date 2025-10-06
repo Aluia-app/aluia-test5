@@ -2,16 +2,45 @@
 (function (global) {
   const EDV = {};
   
+  function sanitizeBase(base) {
+    if (!base || typeof base !== 'string') return '';
+    return base.replace(/\/$/, '');
+  }
+
+  function buildCandidateUrls(url) {
+    if (/^https?:/i.test(url)) return [url];
+
+    const bases = [''];
+    const configuredBase = sanitizeBase(global.__ALUIA_API_BASE);
+    const fallbackBase = sanitizeBase(global.__ALUIA_FALLBACK_API_BASE);
+
+    if (configuredBase && !bases.includes(configuredBase)) bases.push(configuredBase);
+    if (fallbackBase && !bases.includes(fallbackBase)) bases.push(fallbackBase);
+
+    return bases.map(base => base ? `${base}${url}` : url);
+  }
+
   async function safeFetch(url, options = {}) {
-    const res = await fetch(url, options);
-    if (!res.ok) {
-      let txt = '';
-      try { txt = await res.text(); } catch {}
-      const err = new Error(`HTTP ${res.status} su ${url}: ${txt}`);
-      err.status = res.status;
-      throw err;
+    const targets = buildCandidateUrls(url);
+    let lastError = null;
+
+    for (const target of targets) {
+      try {
+        const res = await fetch(target, options);
+        if (!res.ok) {
+          let txt = '';
+          try { txt = await res.text(); } catch {}
+          const err = new Error(`HTTP ${res.status} su ${target}: ${txt}`);
+          err.status = res.status;
+          throw err;
+        }
+        return res;
+      } catch (err) {
+        lastError = err;
+      }
     }
-    return res;
+
+    throw lastError || new Error('Richiesta fallita');
   }
 
   EDV.chat = async (messagesOrBody) => {
